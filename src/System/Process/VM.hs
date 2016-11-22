@@ -1,14 +1,17 @@
+{-# LANGUAGE DoAndIfThenElse #-}
+
 module System.Process.VM 
     -- reexports
     ( Word32, Word64, CPid
     -- read ops
-    , readv, memread, chainRead, chainOffset
+    , readv, readv0, memread, chainRead, chainOffset
     -- write ops
     , writev, memwrite, chainWrite
     ) where
 
 import Control.Monad
 
+import Data.ByteString (ByteString, packCStringLen)
 import Data.Foldable
 import Data.Serialize
 import Data.Word
@@ -30,6 +33,9 @@ foreign import ccall "memread"
 foreign import ccall "memwrite"
     writev :: CPid -> Word -> Ptr () -> Int -> IO () 
 
+foreign import ccall "memread0"
+    c_readv0 :: CPid -> Word -> Ptr () -> Int -> Ptr () -> Int -> IO Int
+
 memread :: (Integral ptr, Storable a) => CPid -> ptr -> IO a
 memread pid addr = do
     retPtr <- malloc :: Storable a => IO (Ptr a)
@@ -37,6 +43,37 @@ memread pid addr = do
     ret <- peek retPtr
     free retPtr
     return ret
+
+readv0 :: (Integral ptr, Storable a) => CPid -> ptr -> Ptr a -> Int -> a -> IO Int
+readv0 pid addr arr n del = with del $ \del' -> 
+    c_readv0 pid (fromIntegral addr) (castPtr arr) (n*(sizeOf del)) (castPtr del') (sizeOf del)
+
+readmalloc0 :: (Integral ptr, Storable a) => CPid -> ptr -> a -> IO (Ptr a, Int)
+readmalloc0 pid addr del = with del $ 
+    \del' -> (f' nullPtr del' (1024 `quot` (sizeOf del)) 0)
+    where
+        szo = sizeOf del
+        f' :: (Integral ptr, Storable a) => (Ptr a) -> (Ptr a) -> Int -> Int -> IO (Ptr a, Int)
+        f' buff del n read = do
+            let sz = n*szo
+            buff' <- reallocArray buff n
+            read' <- c_readv0 pid ((fromIntegral addr)+(fromIntegral read))
+                (castPtr buff') sz (castPtr del) szo
+            if read' < 0 then
+                f' buff' del (n + n `quot` 2) (read-read')
+            else do
+                buff'' <- reallocArray buff' (read+read')
+                return (buff', read+read')
+
+readInto :: (Integral ptr, Storable a) => CPid -> ptr -> ((Ptr a, Int) -> IO b) -> a -> IO b
+readInto pid addr f del = do
+    (p,sz) <- readmalloc0 pid addr del 
+    ret <- f (p,sz)
+    free p
+    return ret
+
+readByteString :: (Integral ptr) => CPid -> ptr -> IO ByteString
+readByteString pid addr = readInto pid addr packCStringLen 0
 
 chainRead :: (Integral ptr, Storable ptr, Storable a) => CPid -> [ptr] -> IO a
 chainRead pid adds = chainOffset pid adds >>= memread pid
