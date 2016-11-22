@@ -1,4 +1,11 @@
-module System.Process.VM where
+module System.Process.VM 
+    -- reexports
+    ( Word32, Word64, CPid
+    -- read ops
+    , readv, memread, chainRead, chainOffset
+    -- write ops
+    , writev, memwrite, chainWrite
+    ) where
 
 import Control.Monad
 
@@ -48,6 +55,12 @@ memwrite :: (Integral ptr, Storable a) => CPid -> ptr -> a -> IO ()
 memwrite pid addr elem = with elem $ \ptr -> do
     writev pid (fromIntegral addr) (castPtr ptr) (sizeOf elem)    
 
+chainWrite :: (Storable ptr, Integral ptr, Storable a) 
+    => CPid -> [ptr] -> a -> IO ()
+chainWrite pid adds val = do
+    add <- chainOffset pid adds
+    when (add/=0) $ memwrite pid add val
+        
 
 sizeOfPtr :: Storable a => Ptr a -> Int
 sizeOfPtr = sizeOf . (undefined :: Ptr a -> a)

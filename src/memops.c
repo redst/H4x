@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <string.h>
 #include <sys/uio.h>
 
 void memread(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
