@@ -19,4 +19,5 @@ library
     build-depends:      unix, 
                         base >= 3 && < 5, 
                         data-default,
-                        cereal
+                        cereal,
+                        bytestring

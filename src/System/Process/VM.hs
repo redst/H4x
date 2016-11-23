@@ -2,11 +2,12 @@
 
 module System.Process.VM 
     -- reexports
-    ( Word32, Word64, CPid
+    ( Word32, Word64, CPid,
     -- read ops
-    , readv, readv0, memread, chainRead, chainOffset
+    readv, readv0, memread, chainRead, chainOffset, readmalloc0,
+    readByteString,
     -- write ops
-    , writev, memwrite, chainWrite
+    writev, memwrite, chainWrite
     ) where
 
 import Control.Monad
