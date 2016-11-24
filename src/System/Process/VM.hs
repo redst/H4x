@@ -8,6 +8,8 @@ module System.Process.VM
     readByteString,
     -- write ops
     writev, memwrite, chainWrite,
+    -- VM reading monad
+    VM(..), newVM, newSizedVM, freeVM, reloadVM, readVM
     ) where
 
 import Control.Monad
@@ -96,7 +98,11 @@ chainWrite pid adds val = do
     add <- chainOffset pid adds
     when (add/=0) $ memwrite pid add val
 
-data VM = VM CPid Int (IORef Word) (Ptr ())
+data VM = VM 
+    { vm_pid    :: CPid
+    , vm_size   :: Int 
+    , vm_addr   :: (IORef Word) 
+    , vm_mem    :: (Ptr ()) }
 
 instance Show VM where
     show (VM pid size _ _) = (show pid) ++ "[" ++ (show size) ++ "]"
@@ -122,8 +128,18 @@ positionVM (VM pid vsz idir ptr) sz addr = do
     else
         return ()
 
-readVM :: (Storable a) => VM -> IO a
-readVM vm = error ""
+reloadVM :: VM -> IO ()
+reloadVM (VM pid vsz idir ptr) = do
+    dir <- readIORef idir
+    readv pid dir ptr vsz
+
+readVM :: Storable a => VM -> Word -> IO a
+readVM = readVM' undefined where
+    readVM' :: (Storable a) => a -> VM -> Word -> IO a
+    readVM' a vm@(VM _ _ idir ptr) addr = do
+        positionVM vm (sizeOf a) addr
+        dir <- readIORef idir
+        peekByteOff ptr $ fromIntegral (addr-dir)
 
         
 
