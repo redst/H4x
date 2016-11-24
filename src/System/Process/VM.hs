@@ -7,12 +7,13 @@ module System.Process.VM
     readv, readv0, memread, chainRead, chainOffset, readmalloc0,
     readByteString,
     -- write ops
-    writev, memwrite, chainWrite
+    writev, memwrite, chainWrite,
     ) where
 
 import Control.Monad
 
 import Data.ByteString (ByteString, packCStringLen)
+import Data.IORef
 import Data.Foldable
 import Data.Serialize
 import Data.Word
@@ -20,13 +21,9 @@ import Data.Word
 import Foreign
 import Foreign.C
 
+import Numeric
+
 import System.Posix.Types
-
-type LPTR = Word64
-type SPTR = Word32
-
-data IOvec a = IOvec a
-    deriving Show
 
 foreign import ccall "memread"
     readv :: CPid -> Word -> Ptr () -> Int -> IO ()
@@ -98,7 +95,39 @@ chainWrite :: (Storable ptr, Integral ptr, Storable a)
 chainWrite pid adds val = do
     add <- chainOffset pid adds
     when (add/=0) $ memwrite pid add val
+
+data VM = VM CPid Int (IORef Word) (Ptr ())
+
+instance Show VM where
+    show (VM pid size _ _) = (show pid) ++ "[" ++ (show size) ++ "]"
+
+newVM :: CPid -> IO VM
+newVM pid = newSizedVM pid 1024
+
+newSizedVM :: CPid -> Int -> IO VM
+newSizedVM pid size = do
+    addr <- newIORef 0
+    ptr <- mallocBytes size
+    return $ VM pid size addr ptr
+    
+freeVM :: VM -> IO ()
+freeVM (VM _ _ _ ptr) = free ptr
+    
+positionVM :: VM -> Int -> Word -> IO ()
+positionVM (VM pid vsz idir ptr) sz addr = do
+    dir <- readIORef idir
+    if addr < dir || addr+(fromIntegral sz) > dir+(fromIntegral vsz) then do
+        readv pid addr ptr vsz
+        writeIORef idir addr
+    else
+        return ()
+
+readVM :: (Storable a) => VM -> IO a
+readVM vm = error ""
+
         
 
 sizeOfPtr :: Storable a => Ptr a -> Int
 sizeOfPtr = sizeOf . (undefined :: Ptr a -> a)
+
+
