@@ -1,4 +1,4 @@
-{-# LANGUAGE DoAndIfThenElse #-}
+{-# LANGUAGE DoAndIfThenElse, OverloadedLists, TypeFamilies #-}
 
 module System.Process.VM 
     -- reexports
@@ -9,19 +9,22 @@ module System.Process.VM
     -- write ops
     writev, memwrite, chainWrite,
     -- VM reading monad
-    VM(..), newVM, newSizedVM, freeVM, reloadVM, readVM
+    VM(..), newVM, newSizedVM, freeVM, reloadVM, peekVM, readVM
     ) where
 
 import Control.Monad
 
 import Data.ByteString (ByteString, packCStringLen)
 import Data.IORef
-import Data.Foldable
+import Data.Foldable hiding (toList)
 import Data.Serialize
 import Data.Word
 
 import Foreign
 import Foreign.C
+
+import qualified GHC.Exts as Exts
+import GHC.IO
 
 import Numeric
 
@@ -102,7 +105,8 @@ data VM = VM
     { vm_pid    :: CPid
     , vm_size   :: Int 
     , vm_addr   :: (IORef Word) 
-    , vm_mem    :: (Ptr ()) }
+    , vm_mem    :: (Ptr ()) 
+    }   
 
 instance Show VM where
     show (VM pid size _ _) = (show pid) ++ "[" ++ (show size) ++ "]"
@@ -133,15 +137,56 @@ reloadVM (VM pid vsz idir ptr) = do
     dir <- readIORef idir
     readv pid dir ptr vsz
 
-readVM :: Storable a => VM -> Word -> IO a
-readVM = readVM' undefined where
+peekVM :: Storable a => VM -> Word -> IO a
+peekVM = readVM' undefined where
     readVM' :: (Storable a) => a -> VM -> Word -> IO a
     readVM' a vm@(VM _ _ idir ptr) addr = do
         positionVM vm (sizeOf a) addr
         dir <- readIORef idir
         peekByteOff ptr $ fromIntegral (addr-dir)
 
+readVM :: VM -> Word -> Int -> IO (Ptr ())
+readVM vm@(VM _ _ idir ptr) addr sz = do
+    positionVM vm sz addr
+    dir <- readIORef idir
+    return (ptr `plusPtr` (fromIntegral $ addr-dir))
+
         
+data Vec a = VEC (ForeignPtr Word8) Int
+
+instance Show (Vec a) where
+    show (VEC ptr sz) = ""
+
+instance (Storable a) => Exts.IsList (Vec a) where
+    type Item (Vec a) = a
+    toList = toList
+    fromList = fromList
+    fromListN = fromListN
+
+fromList :: Storable a => [a] -> Vec a
+fromList xs = fromListN (length xs) xs
+
+fromListN :: Storable a => Int -> [a] -> Vec a
+fromListN n xs = unsafePerformIO $ do
+    let sz = n*(sizeOf $ head xs)
+    ptr <- mallocForeignPtrBytes sz
+    return $ VEC ptr n
+
+toList :: Storable a => Vec a -> [a]
+toList (VEC ptr sz) = unsafePerformIO $ withForeignPtr 
+    (castForeignPtr ptr) $ peekArray sz
+    
+castVec :: Vec a -> Vec b
+castVec (VEC ptr sz) = VEC ptr sz
+
+
+memcmp :: (Integral a) => Ptr Word8 -> Ptr Word8 -> a -> IO Bool
+memcmp pa pb sz = (==0) <$> c_memcmp pa pb (fromIntegral sz)
+
+foreign import ccall unsafe "string.h memcmp"
+    c_memcmp :: Ptr Word8 -> Ptr Word8 -> CSize -> IO CInt
+
+-- utils 
 
 sizeOfPtr :: Storable a => Ptr a -> Int
 sizeOfPtr = sizeOf . (undefined :: Ptr a -> a)
