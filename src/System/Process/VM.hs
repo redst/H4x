@@ -1,4 +1,4 @@
-{-# LANGUAGE DoAndIfThenElse, OverloadedLists, TypeFamilies #-}
+{-# LANGUAGE DoAndIfThenElse, OverloadedStrings, TypeFamilies #-}
 
 module System.Process.VM 
     -- reexports
@@ -13,6 +13,7 @@ module System.Process.VM
     ) where
 
 import Control.Monad
+import Control.Monad.Except
 
 import Data.ByteString (ByteString, packCStringLen)
 import Data.IORef
@@ -31,10 +32,10 @@ import Numeric
 import System.Posix.Types
 
 foreign import ccall "memread"
-    readv :: CPid -> Word -> Ptr () -> Int -> IO ()
+    readv :: CPid -> Word -> Ptr () -> Int -> IO CSize
 
 foreign import ccall "memwrite"
-    writev :: CPid -> Word -> Ptr () -> Int -> IO () 
+    writev :: CPid -> Word -> Ptr () -> Int -> IO CSize
 
 foreign import ccall "memread0"
     c_readv0 :: CPid -> Word -> Ptr () -> Int -> Ptr () -> Int -> IO Int
@@ -42,10 +43,13 @@ foreign import ccall "memread0"
 memread :: (Integral ptr, Storable a) => CPid -> ptr -> IO a
 memread pid addr = do
     retPtr <- malloc :: Storable a => IO (Ptr a)
-    readv pid (fromIntegral addr) (castPtr retPtr) (sizeOfPtr retPtr)
-    ret <- peek retPtr
-    free retPtr
-    return ret
+    read' <- readv pid (fromIntegral addr) (castPtr retPtr) (sizeOfPtr retPtr)
+    if read'<0 then
+        fail $ "readv failed: ERRNO="++(show read')
+    else do
+        ret <- peek retPtr
+        free retPtr
+        return ret
 
 readv0 :: (Integral ptr, Storable a) => CPid -> ptr -> Ptr a -> Int -> a -> IO Int
 readv0 pid addr arr n del = with del $ \del' -> 
@@ -62,8 +66,10 @@ readmalloc0 pid addr del = with del $
             buff' <- reallocArray buff n
             read' <- c_readv0 pid ((fromIntegral addr)+(fromIntegral read))
                 (castPtr buff') sz (castPtr del) szo
-            if read' < 0 then
-                f' buff' del (n + n `quot` 2) (read-read')
+            if read' > sz then
+                f' buff' del (n + n `quot` 2) (read-read'+sz)
+            else if read' == 0 then
+                fail "readv0 failed"
             else do
                 buff'' <- reallocArray buff' (read+read')
                 return (buff', read+read')
@@ -76,7 +82,10 @@ readInto pid addr f del = do
     return ret
 
 readByteString :: (Integral ptr) => CPid -> ptr -> IO ByteString
-readByteString pid addr = readInto pid addr packCStringLen 0
+readByteString pid addr = 
+    catchError 
+        (readInto pid addr packCStringLen 0)
+        (\_ -> return "")
 
 chainRead :: (Integral ptr, Storable ptr, Storable a) => CPid -> [ptr] -> IO a
 chainRead pid adds = chainOffset pid adds >>= memread pid
@@ -93,7 +102,11 @@ chainOffset pid (add:adds) = fromIntegral <$> foldl step (return add) adds
 
 memwrite :: (Integral ptr, Storable a) => CPid -> ptr -> a -> IO ()
 memwrite pid addr elem = with elem $ \ptr -> do
-    writev pid (fromIntegral addr) (castPtr ptr) (sizeOf elem)    
+    ret <- writev pid (fromIntegral addr) (castPtr ptr) (sizeOf elem)    
+    if ret<0 then
+        fail ("writev failed: ERRNO=" ++ (show ret))
+    else
+        return ()
 
 chainWrite :: (Storable ptr, Integral ptr, Storable a) 
     => CPid -> [ptr] -> a -> IO ()
@@ -135,7 +148,10 @@ positionVM (VM pid vsz idir ptr) sz addr = do
 reloadVM :: VM -> IO ()
 reloadVM (VM pid vsz idir ptr) = do
     dir <- readIORef idir
-    readv pid dir ptr vsz
+    ret <- readv pid dir ptr vsz
+    if ret<0 then
+        fail $ "readv failed: ERRNO="++(show ret)
+    else return ()
 
 peekVM :: Storable a => VM -> Word -> IO a
 peekVM = readVM' undefined where

@@ -1,14 +1,15 @@
 #define _GNU_SOURCE
 #include <string.h>
 #include <sys/uio.h>
+#include <errno.h>
 
 #define N UIO_MAXIOV
 
 #define INCREASE(n,m)  ((n*1.5 < m ? n*1.5 : m))
 
-void memread(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
+ssize_t memread(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
 {
-    ssize_t n;
+    ssize_t n,m;
     struct iovec data = {
         targetaddr,
         sz
@@ -17,13 +18,24 @@ void memread(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
         sz
     };
     n = process_vm_readv(pid, &local, 1, &data, 1, 0);
-    if (n > 0 && n < sz)
-        memread(pid, targetaddr+n, ret+n, sz-n);
+    if (n > 0 && n < sz) {
+        m = memread(pid, targetaddr+n, ret+n, sz-n);
+        if (m < 0)
+            return errno;
+        else
+            return n+m;
+    }
+    else if (n < 0) {
+        return errno;
+    }
+    else {
+        return n;
+    }
 }
 
-void memwrite(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
+ssize_t memwrite(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
 {
-    ssize_t n;
+    ssize_t n, m;
     struct iovec data = {
         targetaddr,
         sz
@@ -32,8 +44,19 @@ void memwrite(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
         sz
     };
     n = process_vm_writev(pid, &local, 1, &data, 1, 0);
-    if (n > 0 && n < sz)
-        memwrite(pid, targetaddr+n, ret+n, sz-n);
+    if (n > 0 && n < sz) {
+        m = memwrite(pid, targetaddr+n, ret+n, sz-n);
+        if (m < 0)
+            return errno;
+        else
+            return n+m;
+    }
+    else if (n < 0) {
+        return errno;
+    }
+    else {
+        return n;
+    }
 }
 
 ssize_t memread0(pid_t pid, void *targetaddr, void *ret, ssize_t sz, void *del, ssize_t elemsz)
@@ -43,7 +66,8 @@ ssize_t memread0(pid_t pid, void *targetaddr, void *ret, ssize_t sz, void *del, 
     void *ptr = ret;
 
     do {
-        memread(pid, targetaddr+red, ret+red, n);
+        if (memread(pid, targetaddr+red, ret+red, n) < 0)
+            return 0;
         for(j=0; j<n; j+=elemsz) {
             if (!memcmp(ret+red+j, del, elemsz))
                 return red+j;
@@ -51,6 +75,6 @@ ssize_t memread0(pid_t pid, void *targetaddr, void *ret, ssize_t sz, void *del, 
         red+=j;
         n = INCREASE(n, sz-red);
     } while (red<=sz-elemsz);
-    return -red;
+    return sz+n;
 }
 
