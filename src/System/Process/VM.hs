@@ -40,7 +40,7 @@ foreign import ccall "memwrite"
 foreign import ccall "memread0"
     c_readv0 :: CPid -> Word -> Ptr () -> Int -> Ptr () -> Int -> IO Int
 
-memread :: (Integral ptr, Storable a) => CPid -> ptr -> IO a
+memread :: (Integral addr, Storable a) => CPid -> addr -> IO a
 memread pid addr = do
     retPtr <- malloc :: Storable a => IO (Ptr a)
     read' <- readv pid (fromIntegral addr) (castPtr retPtr) (sizeOfPtr retPtr)
@@ -51,16 +51,16 @@ memread pid addr = do
         free retPtr
         return ret
 
-readv0 :: (Integral ptr, Storable a) => CPid -> ptr -> Ptr a -> Int -> a -> IO Int
+readv0 :: (Integral addr, Storable a) => CPid -> addr -> Ptr a -> Int -> a -> IO Int
 readv0 pid addr arr n del = with del $ \del' -> 
     c_readv0 pid (fromIntegral addr) (castPtr arr) (n*(sizeOf del)) (castPtr del') (sizeOf del)
 
-readmalloc0 :: (Integral ptr, Storable a) => CPid -> ptr -> a -> IO (Ptr a, Int)
+readmalloc0 :: (Integral addr, Storable a) => CPid -> addr -> a -> IO (Ptr a, Int)
 readmalloc0 pid addr del = with del $ 
     \del' -> (f' nullPtr del' (1024 `quot` (sizeOf del)) 0)
     where
         szo = sizeOf del
-        f' :: (Integral ptr, Storable a) => (Ptr a) -> (Ptr a) -> Int -> Int -> IO (Ptr a, Int)
+        f' :: (Integral addr, Storable a) => (Ptr a) -> (Ptr a) -> Int -> Int -> IO (Ptr a, Int)
         f' buff del n read = do
             let sz = n*szo
             buff' <- reallocArray buff n
@@ -74,20 +74,20 @@ readmalloc0 pid addr del = with del $
                 buff'' <- reallocArray buff' (read+read')
                 return (buff', read+read')
 
-readInto :: (Integral ptr, Storable a) => CPid -> ptr -> ((Ptr a, Int) -> IO b) -> a -> IO b
+readInto :: (Integral addr, Storable a) => CPid -> addr -> ((Ptr a, Int) -> IO b) -> a -> IO b
 readInto pid addr f del = do
     (p,sz) <- readmalloc0 pid addr del 
     ret <- f (p,sz)
     free p
     return ret
 
-readByteString :: (Integral ptr) => CPid -> ptr -> IO ByteString
+readByteString :: (Integral addr) => CPid -> addr -> IO ByteString
 readByteString pid addr = 
     catchError 
         (readInto pid addr packCStringLen 0)
         (\_ -> return "")
 
-chainRead :: (Integral ptr, Storable ptr, Storable a) => CPid -> [ptr] -> IO a
+chainRead :: (Integral addr, Storable addr, Storable a) => CPid -> [addr] -> IO a
 chainRead pid adds = chainOffset pid adds >>= memread pid
 
 chainOffset :: (Storable ptr, Integral ptr) => CPid -> [ptr] -> IO ptr
@@ -100,7 +100,7 @@ chainOffset pid (add:adds) = fromIntegral <$> foldl step (return add) adds
             target <- memread pid base
             return (target+offset)
 
-memwrite :: (Integral ptr, Storable a) => CPid -> ptr -> a -> IO ()
+memwrite :: (Integral addr, Storable a) => CPid -> addr -> a -> IO ()
 memwrite pid addr elem = with elem $ \ptr -> do
     ret <- writev pid (fromIntegral addr) (castPtr ptr) (sizeOf elem)    
     if ret<0 then
@@ -108,8 +108,8 @@ memwrite pid addr elem = with elem $ \ptr -> do
     else
         return ()
 
-chainWrite :: (Storable ptr, Integral ptr, Storable a) 
-    => CPid -> [ptr] -> a -> IO ()
+chainWrite :: (Storable addr, Integral addr, Storable a) 
+    => CPid -> [addr] -> a -> IO ()
 chainWrite pid adds val = do
     add <- chainOffset pid adds
     when (add/=0) $ memwrite pid add val
