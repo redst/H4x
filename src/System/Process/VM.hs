@@ -31,13 +31,13 @@ import Numeric
 
 import System.Posix.Types
 
-foreign import ccall "memread"
+foreign import ccall safe "memread"
     readv :: CPid -> Word -> Ptr () -> Int -> IO CSize
 
-foreign import ccall "memwrite"
+foreign import ccall safe "memwrite"
     writev :: CPid -> Word -> Ptr () -> Int -> IO CSize
 
-foreign import ccall "memread0"
+foreign import ccall safe "memread0"
     c_readv0 :: CPid -> Word -> Ptr () -> Int -> Ptr () -> Int -> IO Int
 
 memread :: (Integral addr, Storable a) => CPid -> addr -> IO a
@@ -60,7 +60,6 @@ readmalloc0 pid addr del = with del $
     \del' -> (f' nullPtr del' (1024 `quot` (sizeOf del)) 0)
     where
         szo = sizeOf del
-        f' :: (Integral addr, Storable a) => (Ptr a) -> (Ptr a) -> Int -> Int -> IO (Ptr a, Int)
         f' buff del n read = do
             let sz = n*szo
             buff' <- reallocArray buff n
