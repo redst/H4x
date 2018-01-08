@@ -36,6 +36,7 @@ import System.Posix.Types
 
 import Text.Parsec
 import Text.ParserCombinators.Parsec
+import Text.Printf
 
 foreign import ccall safe "memread"
     readv :: CPid -> Word -> Ptr () -> Int -> IO CSize
@@ -179,8 +180,20 @@ data Region = Region
   , r_read  :: Bool
   , r_write :: Bool
   , r_shared:: Bool
-  } deriving (Show, Eq)
+  } deriving (Eq)
 
+instance Show Region where
+    show r = printf "%s %c%c: 0x%x-0x%x (0x%o)" 
+                name rea wri start end (end - start) 
+      where
+        name = if B.null (r_name r) then "<anon>" else B.unpack (r_name r)
+        start = r_start r
+        end = r_end r
+        rea = if r_read r then 'r' else '-'
+        wri = if r_write r then 'w' else '-'
+
+anon :: Region -> Bool
+anon = B.null . r_name
 -- instance Read Region where
 --     readPrec = do
 --         p <- readPrec
