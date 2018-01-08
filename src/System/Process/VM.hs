@@ -15,7 +15,8 @@ module System.Process.VM
 import Control.Monad
 import Control.Monad.Except
 
-import Data.ByteString (ByteString, packCStringLen)
+import Data.ByteString (ByteString, packCStringLen, readFile)
+import qualified Data.ByteString.Char8 as B
 import Data.IORef
 import Data.Foldable hiding (toList)
 import Data.Serialize
@@ -29,7 +30,12 @@ import GHC.IO
 
 import Numeric
 
+import Prelude hiding (readFile)
+
 import System.Posix.Types
+
+import Text.Parsec
+import Text.ParserCombinators.Parsec
 
 foreign import ccall safe "memread"
     readv :: CPid -> Word -> Ptr () -> Int -> IO CSize
@@ -166,10 +172,45 @@ readVM vm@(VM _ _ idir ptr) addr sz = do
     dir <- readIORef idir
     return (ptr `plusPtr` (fromIntegral $ addr-dir))
 
+data Region = Region
+  { r_start :: Word
+  , r_end   :: Word
+  , r_name  :: ByteString
+  , r_read  :: Bool
+  , r_write :: Bool
+  , r_shared:: Bool
+  } deriving (Show, Eq)
+
+-- instance Read Region where
+--     readPrec = do
+--         p <- readPrec
+--         return (Region p 0 "")
+
+parseRegion :: Parsec ByteString () Region
+parseRegion = do
+    st <- (fst . head . readHex) <$> manyTill hexDigit (char '-')
+    end <- (fst . head . readHex) <$> manyTill hexDigit (char ' ')
+    r <- option False (char 'r' >> return True)
+    w <- option False (char 'w' >> return True)
+    anyChar
+    s <- option False (char 's' >> return True)
+    count 4 $ manyTill anyChar (char ' ')
+    name <- option "" $ do
+        many (char ' ')
+        manyTill anyChar (char '\n')
+    return (Region st end (B.pack name) r w s)
+
+getRegions :: CPid -> IO [Region]
+getRegions pid = do
+    cont <- readFile ("/proc/" ++ show pid ++ "/maps")
+    return $ either (pure []) id $ parse (manyTill parseRegion eof) "getRegions" cont
         
 -- utils 
 
 sizeOfPtr :: Storable a => Ptr a -> Int
 sizeOfPtr = sizeOf . (undefined :: Ptr a -> a)
 
+test pid = do
+    lins <- readFile ("/proc/" ++ show pid ++ "/maps")
+    return $ parse (manyTill parseRegion eof) "<>" lins
 
