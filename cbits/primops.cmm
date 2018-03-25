@@ -1,0 +1,67 @@
+#include "Cmm.h"
+
+prim_vm_write8(W_ pid, W_ addr, P_ value)
+{
+    ccall vm_write8(pid, addr, value);
+    return ();
+}
+
+prim_vm_read16(W_ pid, W_ addr)
+{
+    W_ r;
+    (r) = ccall vm_read16(pid, addr);
+    return (r);
+}
+
+prim_vm_read32(W_ pid, W_ addr)
+{
+    W_ r;
+    (r) = ccall vm_read32(pid, addr);
+    return (r);
+}
+
+prim_vm_read64(W_ pid, W_ addr)
+{
+    W_ r;
+    (r) = ccall vm_read64(pid, addr);
+    return (r);
+}
+
+prim_vm_read(W_ pid, W_ addr, P_ ret, W_ sz)
+{
+    W_ n;
+    (n) = ccall vm_read(pid, addr, ret, sz);
+    return (n);
+}
+
+prim_vm_read0(W_ pid, W_ addr, P_ ret, W_ sz, W_ del, W_ elemsz)
+{
+    W_ n;
+    (n) = ccall vm_read0(pid, addr, ret, sz, del, elemsz);
+    return (n);
+}
+
+prim_vm_write64(W_ pid, W_ addr, P_ value)
+{
+    ccall vm_write64(pid, addr, value);
+    return ();
+}
+
+prim_vm_write32(W_ pid, W_ addr, P_ value)
+{
+    ccall vm_write32(pid, addr, value);
+    return ();
+}
+
+prim_vm_write16(W_ pid, W_ addr, P_ value)
+{
+    ccall vm_write16(pid, addr, value);
+    return ();
+}
+
+prim_vm_write(W_ pid, W_ addr, P_ data, W_ sz)
+{
+    W_ n;
+    (n) = ccall vm_write(pid, addr, data, sz);
+    return (n);
+}

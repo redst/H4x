@@ -1,5 +1,5 @@
 name:           process-vm
-version:        0.1
+version:        0.2
 synopsis:       Linux' process_vm_readv and process_vm_writev
 category:       System
 license:        LGPL
@@ -13,12 +13,20 @@ build-type:     Simple
 
 library
     hs-source-dirs:     src
-    exposed-modules:    System.Process.VM 
-    c-sources:          src/memops.c
-    extensions:         ForeignFunctionInterface
+    exposed-modules:    System.Process.VM,
+                        System.Process.VM.Common,
+                        System.Process.VM.SafeCall,
+                        System.Process.VM.UnsafeCall,
+                        System.Process.VM.PrimCall
+    c-sources:          cbits/memops.c,
+                        cbits/primops.cmm
+    extensions:         ForeignFunctionInterface,
+                        DoAndIfThenElse,
+                        OverloadedStrings,
+                        CPP
     build-depends:      unix, 
                         base >= 3 && < 5, 
-                        mtl,
                         data-default,
+                        parsec >= 3,
                         cereal,
                         bytestring
