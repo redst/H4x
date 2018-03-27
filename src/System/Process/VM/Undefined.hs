@@ -43,17 +43,43 @@ import System.Process.VM.Common
 #define SAFETY unsafe
 #endif
 
+#define FIMPORT foreign import ccall SAFETY
+
+zeroesPtr :: Ptr a
+zeroesPtr = unsafePerformIO (castPtr <$> (callocArray 1024 :: IO (Ptr Word8)))
+
+-- we use the IN_GHCI define to overcome linking problems with CApi and ghci
 #ifndef IN_GHCI
-foreign import capi "sys/uio.h value UIO_MAXIOV" maxIOV :: Int
+foreign import capi "sys/uio.h value UIO_MAXIOV" 
+  maxIOV :: Int
 #else
 maxIOV :: Int
 maxIOV = 1024
 #endif
 
-zeroesPtr :: Ptr a
-zeroesPtr = unsafePerformIO (castPtr <$> (callocArray 1024 :: IO (Ptr Word8)))
+#ifndef IN_GHCI
+foreign import capi "errno.h value EFAULT"
+  eFault :: Int
+#else
+eFault :: Int
+eFault = 14
+#endif
 
-#define FIMPORT foreign import ccall SAFETY
+#ifndef IN_GHCI
+foreing import capi "errno.h value EINVAL"
+  eInval :: Int
+#else
+eInval :: Int
+eInval = 22
+#endif
+
+#ifndef IN_GHCI
+foreign import capi "errno.h value ESRCH"
+  eSrch :: Int
+#else
+eSrch :: Int
+eSrch = 3
+#endif
 
 -- | Specific size reading functions
 FIMPORT "vm_read8"
