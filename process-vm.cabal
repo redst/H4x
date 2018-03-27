@@ -21,6 +21,7 @@ library
     c-sources:          cbits/memops.c,
                         cbits/primops.cmm
     extensions:         ForeignFunctionInterface,
+                        CApiFFI,
                         DoAndIfThenElse,
                         OverloadedStrings,
                         CPP

@@ -6,9 +6,16 @@
 #include <unistd.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <sys/user.h>
 
 #define MAXSIZE UIO_MAXIOV
+
+#define UNIT ((ptrdiff_t) 1)
+#define MASKN(n) (n >= sizeof(ptrdiff_t)                \
+                        ? -UNIT                          \
+                        : ((UNIT << 8 * n) - 1))
+#define MASKEDN(n,x) (MASKN(n) & (ptrdiff_t) ((x)))
 
 #define INCREASE(n,m)  ((n*1.5 < m ? n*1.5 : m))
 
@@ -25,7 +32,7 @@ INLINE uint64_t vm_read64(pid_t, void *);
 INLINE    float  vm_readf(pid_t, void *);
 INLINE   double  vm_readd(pid_t, void *);
 INLINE  ssize_t   vm_read(pid_t, void *, void *, ssize_t);
-INLINE  ssize_t  vm_read0(pid_t, void *, void *, ssize_t,  void *, ssize_t);
+INLINE  ssize_t  vm_read0(pid_t, void *, void *, ssize_t, void *, ssize_t, int);
 
 INLINE     void  vm_write8(pid_t, void *, uint8_t);
 INLINE     void vm_write16(pid_t, void *, uint16_t);
@@ -143,17 +150,20 @@ ssize_t vm_read(pid_t pid, void *targetaddr, void *ret, ssize_t sz)
 }
 
 ssize_t vm_read0(pid_t pid, void *targetaddr, void *ret, ssize_t sz, void *del, 
-                 ssize_t elemsz)
+                 ssize_t elemsz, int checkmem)
 {
-    ssize_t n = 64 < sz ? 64 : sz;
-    ssize_t j, status, red=0;
+    ssize_t n = sz; // = 64 < sz ? 64 : sz;
+    ssize_t j, status, red = 0;
 
     do {
         if ((status = vm_read(pid, targetaddr + red, ret + red, n)) < 0)
             return status;
         for (j=0; j < n; j += elemsz) {
-            if (!memcmp(ret+red+j, del, elemsz))
+            if (( checkmem && !memcmp(ret + red + j, del, elemsz))
+              || !checkmem && ((ptrdiff_t) del) 
+                              == MASKEDN(elemsz, *(void **) (ret + red + j)))
                 return red + j;
+
         }
         red += j;
         if (n < MAXSIZE)
