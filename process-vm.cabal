@@ -11,6 +11,10 @@ description:    Bindings to linux' only process_vm_readv and
 Cabal-Version: >= 1.2
 build-type:     Simple
 
+Flag Debug
+    Description:        Trace ocurrence of generic 'read_' and 'write_' operations, as
+                        opposed to rules-sustituted ones
+    Default:            False
 library
     hs-source-dirs:     src
     exposed-modules:    System.Process.VM,
@@ -24,10 +28,15 @@ library
                         CApiFFI,
                         DoAndIfThenElse,
                         OverloadedStrings,
-                        CPP
+                        CPP,
+                        FlexibleInstances,
+                        UndecidableInstances
     build-depends:      unix, 
                         base >= 3 && < 5, 
                         data-default,
                         parsec >= 3,
                         cereal,
                         bytestring
+
+    if flag(debug)
+        GHC-Options:    -DDEBUG

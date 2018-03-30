@@ -45,7 +45,7 @@ INLINE  ssize_t   vm_write(pid_t, void *, void *, ssize_t);
 
 uint8_t vm_read8(pid_t pid, void *targetaddr)
 {
-    uint8_t ret;
+    uint8_t ret = 0;
     struct iovec local = {
         &ret,
         1
@@ -59,7 +59,7 @@ uint8_t vm_read8(pid_t pid, void *targetaddr)
 
 uint16_t vm_read16(pid_t pid, void *targetaddr)
 {
-    uint16_t ret;
+    uint16_t ret = 0;
     struct iovec local = {
         &ret,
         2
@@ -73,7 +73,7 @@ uint16_t vm_read16(pid_t pid, void *targetaddr)
 
 uint32_t vm_read32(pid_t pid, void *targetaddr)
 {
-    uint32_t ret;
+    uint32_t ret = 0;
     struct iovec local = {
         &ret,
         4
@@ -87,7 +87,7 @@ uint32_t vm_read32(pid_t pid, void *targetaddr)
 
 uint64_t vm_read64(pid_t pid, void *targetaddr)
 {
-    uint64_t ret;
+    uint64_t ret = 0;
     struct iovec local = {
         &ret,
         8
@@ -101,7 +101,7 @@ uint64_t vm_read64(pid_t pid, void *targetaddr)
 
 float vm_readf(pid_t pid, void *targetaddr)
 {
-    float ret;
+    float ret = 0;
     struct iovec local = {
         &ret,
         sizeof(float)
@@ -115,7 +115,7 @@ float vm_readf(pid_t pid, void *targetaddr)
 
 double vm_readd(pid_t pid, void *targetaddr)
 {
-    double ret;
+    double ret = 0;
     struct iovec local = {
         &ret,
         sizeof(double)
