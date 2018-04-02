@@ -10,14 +10,13 @@
     , VMException(..) 
     -- ** Peeping functions
     , peepBytes, peepStorable, chainOffset, chainPeep, peep0, peepMalloc0
-    , peepMalloc0WithSize, peepByteString, tryPeepBytes, peepBytes_
-    , tryPeepStorable, peepStorable_, tryChainOffset, chainOffset_
-    , tryChainPeep, chainPeep_, tryPeep0, peep0_, tryPeepMalloc0, peepMalloc0_
-    , tryPeepMalloc0WithSize, peepMalloc0WithSize_, tryPeepByteString
-    , peepBytestring_
+    , peepMalloc0WithSize, peepByteString, peepIntegral_, tryPeepBytes
+    , peepBytes_, tryPeepStorable, peepStorable_, tryChainOffset, chainOffset_
+    , tryChainPeep, chainPeep_, tryPeep0, tryPeepMalloc0
+    , tryPeepMalloc0WithSize, tryPeepByteString, peepByteString_
     -- ** Planting functions
-    , plantBytes, plantStorable, plantIntegral_, tryWrite, chainWrite
-    , tryChainWrite, chainWrite_
+    , plantBytes, plantStorable, chainPlant, tryPlantBytes, plantBytes_
+    , tryPlantStorable, plantStorable_, plantIntegral_, tryChainPlant, chainPlant_
     -- ** Synonym functions for 'Remote' class methods
     , tryPeep, peep_, tryPlant, plant_
     -- *** Specific type peeping functions
@@ -77,26 +76,56 @@ maxIOV = 1024
 -- works on provided buffers and lengths, the most rudimentary aproaches to 
 -- this are 'peepBytes' and 'peepStorable', the latter making use of "Foreign"
 -- memory allocations. But on small, C-like types this entails a considerable
--- overhead due to Foreign allocations being foreign calls as well
+-- overhead due to the additional foreign calls
 
--- | 'Remote' supersedes 'Storable' and allows for the definition 
+-- | 'Remote' compliments 'Storable' and allows for the definition 
 -- of operations on non-continuous memory addresses, and fast reads on basic
--- types
+-- types. 'Remote' types may or may not be 'Storable': linked lists, for 
+-- example, can't be peeked as a 'Storable'; a greatly padded C struct can be 
+-- 'Storable', but could more efficientely peeped as 'Remote':
+--
+-- @
+-- __data__ SomeStruct __=__ SomeStruct Word32 Float
+-- __instance__ 'Storable' SomeStruct __where__
+--   'sizeOf' _ __=__ 1024  /-- considerably large/
+--   /-- we have to operate on a pointer to 1KiB of stored data to retrieve 8B/
+--   'peek' ptr __=__ liftM2 SomeStruct __(__peekByteOff ptr 0__)__
+--                                __(__peekByteOff ptr 1020__)__
+--   'poke' ptr __(__SomeStruct x y__)__ __=__ __do__ pokeByteOff __(__castPtr ptr__)__ 0 x 
+--                                  pokeByteOff ptr 1020 y
+--
+-- __instance__ 'Remote' SomeStruct __where__
+--   'peep' pid addr __=__ liftM2 SomeStruct __(__peep pid addr__)__
+--                                     __(__peep pid __(__addr __+__ 1020__))__
+--   'plant' pid addr __(__SomeStruct x y__)__ __=__ __do__ plant pid addr x 
+--                                        plant pid __(__addr __+__ 1020__)__ y
+--   'peepUnsafe' pid addr __=__ liftM2 SomeStruct __(__peep_ pid addr__)__ 
+--                                           __(__peep_ pid __(__addr __+__ 1020__))__
+--   'plantUnsafe' pid addr __(__SomeStruct x y__)__ __=__ __do__ plant_ pid addr x
+--                                              plant_ pid addr y
+-- @
 class Remote a where
-    -- | Read a value from the given address in the given pid's address space
+    -- | Read a value starting at the given address in the given pid's address 
+    -- space. This function can and should throw a 'VMException' when due
     peep        :: CPid -> Word -> IO a
-    -- | Same as peep, but returning a null value in case of error, as opposed
-    -- to throwing a 'VMException'
+    -- | Same as peep, but returning a null value in case of error. Consider 
+    -- 'peep_' for a short synonym
     peepUnsafe  :: CPid -> Word -> IO a
-    -- | Write a value to the given address at the given pid. Consider 'peep_'
-    -- for a short synonym
+    -- | Write a value at the given address of the given pid
     plant       :: CPid -> Word -> a -> IO ()
     -- | idem. Returning a null value in case of error. Consider 'plant_' for a
     -- synonym
     plantUnsafe :: CPid -> Word -> a -> IO ()
 
+
+tryPeep :: Remote a => CPid -> Word -> IO (Either VMException a)
+tryPeep p a = try (peep p a)
+
 peep_ :: Remote a => CPid -> Word -> IO a
 peep_ = peepUnsafe
+
+tryPlant :: Remote a => CPid -> Word -> a -> IO (Maybe VMException)
+tryPlant p a e = eithToMaybe <$> try (plant p a e)
 
 plant_ :: Remote a => CPid -> Word -> a -> IO ()
 plant_ = plantUnsafe
@@ -109,73 +138,73 @@ instance {-# Overlappable #-} (Integral a, Storable a) => Remote a where
     plant = plantStorable
     plantUnsafe = plantIntegral_
 
-instance Remote Double where
+instance {-# Overlapping #-} Remote Double where
     peep = peepStorable
     peepUnsafe = peepDouble
     plant = plantStorable
     plantUnsafe = plantDouble
 
-instance Remote Float where
+instance {-# Overlapping #-} Remote Float where
     peep = peepStorable
     peepUnsafe = peepFloat
     plant = plantStorable
     plantUnsafe = plantFloat
 
-instance Remote Word where
+instance {-# Overlapping #-} Remote Word where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepWord
     plantUnsafe = plantWord
 
-instance Remote Word8 where
+instance {-# Overlapping #-} Remote Word8 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepWord8
     plantUnsafe = plantWord8
 
-instance Remote Word16 where
+instance {-# Overlapping #-} Remote Word16 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepWord16
     plantUnsafe = plantWord16
 
-instance Remote Word32 where
+instance {-# Overlapping #-} Remote Word32 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepWord32
     plantUnsafe = plantWord32
 
-instance Remote Word64 where
+instance {-# Overlapping #-} Remote Word64 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepWord64
     plantUnsafe = plantWord64
 
-instance Remote Int where
+instance {-# Overlapping #-} Remote Int where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepInt
     plantUnsafe = plantInt
 
-instance Remote Int8 where
+instance {-# Overlapping #-} Remote Int8 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepInt8
     plantUnsafe = plantInt8
 
-instance Remote Int16 where
+instance {-# Overlapping #-} Remote Int16 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepInt16
     plantUnsafe = plantInt16
 
-instance Remote Int32 where
+instance {-# Overlapping #-} Remote Int32 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepInt32
     plantUnsafe = plantInt32
 
-instance Remote Int64 where
+instance {-# Overlapping #-} Remote Int64 where
     peep = peepStorable
     plant = plantStorable
     peepUnsafe = peepInt64
@@ -284,15 +313,14 @@ FIMPORT "vm_read"
 FIMPORT "vm_read0"
     vm_read0 :: CPid -> Word -> Ptr () -> Int -> Ptr () -> Int -> Int -> IO Int
 
-peepBytes :: CPid -> Word -> Ptr () -> Int -> IO Int
+peepBytes :: CPid -> Word -> Ptr () -> Int -> IO ()
 peepBytes pid addr ptr sz = do
     cons <- vm_read pid addr ptr sz
     when (cons < 0) $ do
         throwerr cons pid "peepBytes" ptr addr sz sz
-    return cons
 
-tryPeepBytes :: CPid -> Word -> Ptr () -> Int -> IO (Either VMException Int)
-tryPeepBytes p a p' s = try (peepBytes p a p' s)
+tryPeepBytes :: CPid -> Word -> Ptr () -> Int -> IO (Maybe VMException)
+tryPeepBytes p a p' s = eithToMaybe <$> try (peepBytes p a p' s)
 
 peepBytes_ :: CPid -> Word -> Ptr () -> Int -> IO ()
 peepBytes_ p a p' s = void $ tryPeepBytes p a p' s
@@ -314,14 +342,14 @@ peepStorable pid addr = do
         free retPtr
         return ret
 
-tryPeep :: Remote a => CPid -> Word -> IO (Either VMException a)
-tryPeep pid addr = try (peep pid addr)
+tryPeepStorable :: Storable a => CPid -> Word -> IO (Either VMException a)
+tryPeepStorable p a = try (peepStorable p a)
 
 peepStorable_ :: Storable a => CPid -> Word -> IO a
 {-# INLINE [1] peepStorable_ #-}
 peepStorable_ pid addr = do
 #ifdef DEBUG
-    printf "generic 'peepStorable_' on 0x%x\n" addr
+    printf "performing 'peepStorable_' on 0x%x\n" addr
 #endif
     eith <- try (peepStorable pid addr)
     either ((\_ -> peek zeroesPtr) :: Storable a => VMException -> IO a) 
@@ -346,9 +374,9 @@ peepIntegral_ = peep' undefined where
     peep' :: (Integral a, Storable a) => a -> CPid -> Word -> IO a
     peep' x 
       | sizeOf x == 1 = chain peepWord8
-      | sizeOf x == 2 = chain peepWord8
-      | sizeOf x == 4 = chain peepWord8
-      | sizeOf x == 8 = chain peepWord8
+      | sizeOf x == 2 = chain peepWord16
+      | sizeOf x == 4 = chain peepWord32
+      | sizeOf x == 8 = chain peepWord64
       | otherwise = peepStorable_
     chain f = \p a -> do
 #ifdef DEBUG
@@ -361,18 +389,30 @@ peep0 pid addr arr n del = with del $ \del' ->
     vm_read0 pid addr (castPtr arr) (n * sizeOf del) 
              (castPtr del') (sizeOf del) 1
 
+tryPeep0 :: Storable a => CPid -> Word -> Ptr a -> Int -> 
+                          a -> IO (Either VMException Int)
+tryPeep0 p a p' n d = try (peep0 p a p' n d)
+
 peepMalloc0 :: (Integral a, Storable a) => CPid -> Word -> a -> IO (Ptr a, Int)
 peepMalloc0 = peepMalloc0WithSize (sizeOf (0 :: Word))
+
+tryPeepMalloc0 :: (Integral a, Storable a) => CPid -> Word -> a -> 
+                                          IO (Either VMException (Ptr a, Int))
+tryPeepMalloc0 p a d = try (peepMalloc0 p a d)
 
 peepMalloc0WithSize :: (Integral a, Storable a) => Int -> CPid -> Word -> 
                                                    a -> IO (Ptr a, Int)
 peepMalloc0WithSize = peepMalloc0WithSizeInt
 
+tryPeepMalloc0WithSize :: (Integral a, Storable a) => Int -> CPid -> Word 
+                                   -> a -> IO (Either VMException (Ptr a, Int))
+tryPeepMalloc0WithSize i p a d = try (peepMalloc0WithSize i p a d)
+
 peepMalloc0WithSizeGeneric :: Storable a => Int -> CPid -> Word -> 
                                             a -> IO (Ptr a, Int)
 peepMalloc0WithSizeGeneric isz pid addr del = with del $ 
     \delp -> peep0step pid addr nullPtr delp True startingn 0
-    where startingn = (max delsz isz) `quot` delsz
+    where startingn = (min maxIOV $ max delsz isz) `quot` delsz
           delsz = sizeOf del
 
 peepMalloc0WithSizeInt :: (Storable a, Integral a) => Int -> CPid -> Word -> 
@@ -381,30 +421,30 @@ peepMalloc0WithSizeInt isz pid addr del
   | delsz <= sizeOf nullPtr = peep0step pid addr nullPtr 
                           (wordPtrToPtr $ fromIntegral del) False startingn 0
   | otherwise = peepMalloc0WithSizeGeneric isz pid addr del
-  where startingn = (max delsz isz) `quot` delsz
+  where startingn = (min maxIOV $ max delsz isz) `quot` delsz
         delsz = sizeOf del
 
 peep0step :: Storable a => CPid -> Word -> Ptr a -> Ptr a -> 
                            Bool -> Int -> Int -> IO (Ptr a, Int)
-peep0step pid addr ptr delp memcmp n peep' = do
+peep0step pid addr ptr delp memcmp n read' = do
     let sz = n * delsz
     ptr' <- reallocArray ptr n
-    peep'' <- vm_read0 pid (addr + fromIntegral peep')
+    read'' <- vm_read0 pid (addr + fromIntegral read')
                            (castPtr ptr')
                            sz 
                            (castPtr delp) 
                            delsz
                            (if memcmp then 1 else 0)
-    if peep'' >= sz then
-        peep0step pid addr ptr' delp memcmp nextn (peep' - peep'' + sz)
-    else if peep'' <= 0 then
-        throwerr peep'' pid "peep0Malloc"
+    if read'' >= sz then
+        peep0step pid addr ptr' delp memcmp nextn (read' - read'' + sz)
+    else if read'' <= 0 then
+        throwerr read'' pid "read0Malloc"
                  ptr addr sz sz
     else do
-        ptr'' <- reallocArray ptr' (peep' + peep'')
-        return (ptr'', peep' + peep'')
+        ptr'' <- reallocArray ptr' (read' + read'')
+        return (ptr'', read' + read'')
     where
-        nextn = if n < 8 then 2 * n else 3 * n `quot` 2
+        nextn = n + (min n maxIOV)
         delsz = sizeOfPtr delp
 
 peepByteString :: CPid -> Word -> IO ByteString
@@ -438,9 +478,6 @@ tryChainOffset pid addrs = try (chainOffset pid addrs)
 
 chainOffset_ :: (Remote addr, Integral addr) => CPid -> [addr] -> IO addr
 chainOffset_ pid addrs = do
-#ifdef DEBUG
-    putStrLn "generic chainOffset_"
-#endif
     chainOffsetWith peep_ pid addrs
 
 -- | Simple Type writing functions
@@ -503,12 +540,17 @@ FIMPORT "vm_write32"
 FIMPORT "vm_write64"
     plantInt64   :: CPid -> Word -> Int64 -> IO ()
 
-plantBytes :: CPid -> Word -> Ptr () -> Int -> IO Int
+plantBytes :: CPid -> Word -> Ptr () -> Int -> IO ()
 plantBytes pid addr ptr sz = do
     written <- vm_write pid addr ptr sz
     when (written < 0) $ do
         throwerr (-written) pid "plantBytes" ptr addr sz sz
-    return written
+
+tryPlantBytes :: CPid -> Word -> Ptr () -> Int -> IO (Maybe VMException)
+tryPlantBytes p a p' s = eithToMaybe <$> try (plantBytes p a p' s)
+
+plantBytes_ :: CPid -> Word -> Ptr () -> Int -> IO ()
+plantBytes_ p a p' s = void $ tryPlantBytes p a p' s
 
 plantStorable :: Storable a => CPid -> Word -> a -> IO ()
 plantStorable pid addr e = with e $ \ptr -> do
@@ -516,9 +558,8 @@ plantStorable pid addr e = with e $ \ptr -> do
     when (ret < 0) $ do
         throwerr ret pid "plant" ptr addr (sizeOf e) (sizeOf e) 
 
-tryWrite :: Remote a => CPid -> Word -> a -> IO (Maybe VMException)
-tryWrite pid addr e = either Just (pure Nothing) <$> try (plant pid addr e)
-
+tryPlantStorable :: Storable a => CPid -> Word -> a -> IO (Maybe VMException)
+tryPlantStorable p a e = eithToMaybe <$> try (plantStorable p a e)
 plantStorable_ :: Storable a => CPid -> Word -> a -> IO ()
 {-# INLINE [1] plantStorable_ #-}
 plantStorable_ pid addr e = do
@@ -557,26 +598,30 @@ plantIntegral_ = plant' 0 where
 #endif
         f p a (fromIntegral b)
 
-chainWrite :: (Remote addr, Integral addr, Remote a) 
+chainPlant :: (Remote addr, Integral addr, Remote a) 
         => CPid -> [addr] -> a -> IO ()
-chainWrite pid adds val = do
+chainPlant pid adds val = do
     add <- chainOffset pid adds
     when (add/=0) $ plant pid (fromIntegral add) val
 
-tryChainWrite :: (Remote addr, Integral addr, Remote a) 
+tryChainPlant :: (Remote addr, Integral addr, Remote a) 
         => CPid -> [addr] -> a -> IO (Maybe VMException)
-tryChainWrite pid adds val = try' $ do
+tryChainPlant pid adds val = try' $ do
     add <- chainOffset pid adds
     when (add/=0) $ plant pid (fromIntegral add) val
-    where try' = fmap (either Just (pure Nothing)) . try
+    where try' = fmap eithToMaybe . try
 
-chainWrite_ :: (Remote addr, Integral addr, Remote a) 
+chainPlant_ :: (Remote addr, Integral addr, Remote a) 
         => CPid -> [addr] -> a -> IO ()
-{-# INLINE [2] chainWrite_ #-}
-chainWrite_ pid addrs e = chainOffset_ pid addrs 
+{-# INLINE [2] chainPlant_ #-}
+chainPlant_ pid addrs e = chainOffset_ pid addrs 
                           >>= (\a -> plant_ pid a e) . fromIntegral
 -- utils 
 
 sizeOfPtr :: Storable a => Ptr a -> Int
 sizeOfPtr = sizeOf . (undefined :: Ptr a -> a)
+
+eithToMaybe :: Either a b -> Maybe a
+eithToMaybe = either Just (\_ -> Nothing)
+
 
