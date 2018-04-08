@@ -12,6 +12,6 @@
 --
 -----------------------------------------------------------------------------
 
-module System.Process.VM.SafeCall 
+#define MODULENAME System.Process.VM.SafeCall
 #define SAFETY safe
 #include "Undefined.hs"

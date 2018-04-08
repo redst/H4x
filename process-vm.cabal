@@ -18,10 +18,11 @@ Flag Debug
 library
     hs-source-dirs:     src
     exposed-modules:    System.Process.VM,
-                        System.Process.VM.Common,
+                        System.Process.VM.Regions,
                         System.Process.VM.SafeCall,
                         System.Process.VM.UnsafeCall,
                         System.Process.VM.PrimCall
+    other-modules:      System.Process.VM.Undefined
     c-sources:          cbits/memops.c,
                         cbits/primops.cmm
     extensions:         ForeignFunctionInterface,

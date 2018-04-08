@@ -1,37 +1,46 @@
--- module <modulename>
-    ( 
+#ifndef MODULENAME
+#define MODULENAME System.Process.VM.Undefined
+#endif
+module MODULENAME ( 
+    -- * Accessing another process' address space
+    peepBytes, peepStorable, plantBytes, plantStorable, 
     -- ** The shortcomings of 'Storable'
     
     -- $intro
 
     -- * The 'Remote' class
-    Remote(..)
+    Remote(..),
+    -- ** Auxiliary functions and values
+    maxIOV, peekZeroes,
     -- ** Exceptions thrown by VM operations
-    , VMException(..) 
+    VMException(..),
     -- ** Peeping functions
-    , peepBytes, peepStorable, chainOffset, chainPeep, peep0, peepMalloc0
-    , peepMalloc0WithSize, peepByteString, peepIntegral_, tryPeepBytes
-    , peepBytes_, tryPeepStorable, peepStorable_, tryChainOffset, chainOffset_
-    , tryChainPeep, chainPeep_, tryPeep0, tryPeepMalloc0
-    , tryPeepMalloc0WithSize, tryPeepByteString, peepByteString_
+    chainOffset, chainPeep, peep0, peepMalloc0,
+    peepMalloc0WithSize, peepByteString, peepIntegral_, tryPeepBytes,
+    peepBytes_, tryPeepStorable, peepStorable_, tryChainOffset, chainOffset_,
+    tryChainPeep, chainPeep_, tryPeep0, tryPeepMalloc0,
+    tryPeepMalloc0WithSize, tryPeepByteString, peepByteString_,
     -- ** Planting functions
-    , plantBytes, plantStorable, chainPlant, tryPlantBytes, plantBytes_
-    , tryPlantStorable, plantStorable_, plantIntegral_, tryChainPlant, chainPlant_
+    chainPlant, tryPlantBytes, plantBytes_,
+    tryPlantStorable, plantStorable_, plantIntegral_, tryChainPlant, chainPlant_,
     -- ** Synonym functions for 'Remote' class methods
-    , tryPeep, peep_, tryPlant, plant_
-    -- *** Specific type peeping functions
-    , peepFloat, peepDouble, peepInt, peepWord, peepWord8, peepWord16
-    , peepWord32, peepWord64, peepInt8, peepInt16, peepInt32, peepInt64
-    -- *** Specific type planting functions
-    , plantFloat, plantDouble, plantInt, plantWord, plantWord8, plantWord16
-    , plantWord32, plantWord64, plantInt8, plantInt16, plantInt32, plantInt64
-    , maxIOV
-    , module System.Process.VM.Common
-    -- type reexports
-    , CPid (..) 
-    , Storable (..)
-    , module Data.Int
-    , module Data.Word
+    tryPeep, peep_, tryPlant, plant_,
+    -- *** Basic type peeping functions
+    -- | These functions are the implementation for 'peep_' for their respective
+    -- return types
+    peepFloat, peepDouble, peepInt, peepWord, peepWord8, peepWord16,
+    peepWord32, peepWord64, peepInt8, peepInt16, peepInt32, peepInt64,
+    -- *** Basic type planting functions
+    -- | These are the implementation for 'plant_' for their respective types
+    plantFloat, plantDouble, plantInt, plantWord, plantWord8, plantWord16,
+    plantWord32, plantWord64, plantInt8, plantInt16, plantInt32, plantInt64,
+    -- * Functions for retrieving info about a process' memory regions
+    module System.Process.VM.Regions,
+    -- * Some relevant reexports
+    CPid (..),
+    ByteString (..),
+    Int8, Int16, Int32, Int64, Word8, Word16, Word32, Word64,
+    Storable (..)
     ) where
 
 import Control.Monad
@@ -48,7 +57,7 @@ import Foreign.C
 import GHC.IO
 
 import System.Posix.Types 
-import System.Process.VM.Common
+import System.Process.VM.Regions
 
 import Text.Printf
 
@@ -58,11 +67,24 @@ import Text.Printf
 
 #define FIMPORT foreign import ccall SAFETY
 
+#ifndef ZEROESPTRSIZE 
+#define ZEROESPTRSIZE 1024
+#endif
 zeroesPtr :: Ptr a
-zeroesPtr = unsafePerformIO (castPtr <$> (callocArray 1024 :: IO (Ptr Word8)))
+zeroesPtr = unsafePerformIO (callocBytes ZEROESPTRSIZE)
+
+-- | Peek into an array of @0@s. Used by 'peepStorable_' in case of failure
+peekZeroes :: Storable a => IO a
+peekZeroes = p undefined where
+  p :: Storable a => a -> IO a
+  p x = if sz <= ZEROESPTRSIZE then peek zeroesPtr else callocBytes sz >>= peek
+      where sz = sizeOf x
 
 -- we use the IN_GHCI define to overcome linking problems with CApi and ghci
--- *** max individual transfer size, as defined in [<sys/uio.h>](/usr/include/sys/uio.h)
+-- | Max individual transfer size in bytes, as defined in
+-- [<limits.h>](http://man7.org/linux/man-pages/man0/limits.h.0p.html).
+-- This value is purely informative, all operations in this module work on
+-- arbitrarily large sizes
 #ifndef IN_GHCI
 foreign import capi "sys/uio.h value UIO_MAXIOV" 
   maxIOV :: Int
@@ -86,6 +108,7 @@ maxIOV = 1024
 --
 -- @
 -- __data__ SomeStruct __=__ SomeStruct Word32 Float
+--
 -- __instance__ 'Storable' SomeStruct __where__
 --   'sizeOf' _ __=__ 1024  /-- considerably large/
 --   /-- we have to operate on a pointer to 1KiB of stored data to retrieve 8B/
@@ -210,7 +233,9 @@ instance {-# Overlapping #-} Remote Int64 where
     peepUnsafe = peepInt64
     plantUnsafe = plantInt64
 
--- | Exceptions thrown by process_vm_readv and process_vm_writev
+-- | Exceptions thrown by process_vm_readv and process_vm_writev. Check the 
+-- [man page](http://man7.org/linux/man-pages/man2/process_vm_readv.2.html) 
+-- for their meaning 
 data VMException 
   = BadAddress String
   | InvalidSize String
@@ -258,7 +283,6 @@ throwerr err pid call la ra ll rl = throw $
                       (fromIntegral $ ptrToWordPtr la) ra 
                       ll rl
 
--- | Specific size peeping functions
 FIMPORT "vm_read8"
     peepWord8  :: CPid -> Word -> IO Word8
 
@@ -282,8 +306,6 @@ FIMPORT "vm_read32"
 
 FIMPORT "vm_read64"
     peepInt64 :: CPid -> Word -> IO Int64
-
--- | Simple Type peeping functions
 
 FIMPORT
 #if WORD_SIZE_IN_BITS == 64
@@ -313,16 +335,16 @@ FIMPORT "vm_read"
 FIMPORT "vm_read0"
     vm_read0 :: CPid -> Word -> Ptr () -> Int -> Ptr () -> Int -> Int -> IO Int
 
-peepBytes :: CPid -> Word -> Ptr () -> Int -> IO ()
+peepBytes :: CPid -> Word -> Ptr a -> Int -> IO ()
 peepBytes pid addr ptr sz = do
-    cons <- vm_read pid addr ptr sz
+    cons <- vm_read pid addr (castPtr ptr) sz
     when (cons < 0) $ do
         throwerr cons pid "peepBytes" ptr addr sz sz
 
-tryPeepBytes :: CPid -> Word -> Ptr () -> Int -> IO (Maybe VMException)
+tryPeepBytes :: CPid -> Word -> Ptr a -> Int -> IO (Maybe VMException)
 tryPeepBytes p a p' s = eithToMaybe <$> try (peepBytes p a p' s)
 
-peepBytes_ :: CPid -> Word -> Ptr () -> Int -> IO ()
+peepBytes_ :: CPid -> Word -> Ptr a -> Int -> IO ()
 peepBytes_ p a p' s = void $ tryPeepBytes p a p' s
 
 peepStorable :: Storable a => CPid -> Word -> IO a
@@ -352,7 +374,7 @@ peepStorable_ pid addr = do
     printf "performing 'peepStorable_' on 0x%x\n" addr
 #endif
     eith <- try (peepStorable pid addr)
-    either ((\_ -> peek zeroesPtr) :: Storable a => VMException -> IO a) 
+    either ((\_ -> peekZeroes) :: Storable a => VMException -> IO a) 
            return eith 
 {-# RULES 
 "peepStorable_" peepStorable_ = peepWord   :: CPid -> Word -> IO Word
@@ -480,7 +502,6 @@ chainOffset_ :: (Remote addr, Integral addr) => CPid -> [addr] -> IO addr
 chainOffset_ pid addrs = do
     chainOffsetWith peep_ pid addrs
 
--- | Simple Type writing functions
 FIMPORT
     vm_write :: CPid -> Word -> Ptr () -> Int -> IO Int
 
@@ -515,7 +536,6 @@ FIMPORT "vm_writef"
 FIMPORT "vm_writed"
     plantDouble :: CPid -> Word -> Double -> IO ()
 
--- | Specific size writing functions
 FIMPORT "vm_write8"
     plantWord8   :: CPid -> Word -> Word8 -> IO ()
 
@@ -540,16 +560,16 @@ FIMPORT "vm_write32"
 FIMPORT "vm_write64"
     plantInt64   :: CPid -> Word -> Int64 -> IO ()
 
-plantBytes :: CPid -> Word -> Ptr () -> Int -> IO ()
+plantBytes :: CPid -> Word -> Ptr a -> Int -> IO ()
 plantBytes pid addr ptr sz = do
-    written <- vm_write pid addr ptr sz
+    written <- vm_write pid addr (castPtr ptr) sz
     when (written < 0) $ do
         throwerr (-written) pid "plantBytes" ptr addr sz sz
 
-tryPlantBytes :: CPid -> Word -> Ptr () -> Int -> IO (Maybe VMException)
+tryPlantBytes :: CPid -> Word -> Ptr a -> Int -> IO (Maybe VMException)
 tryPlantBytes p a p' s = eithToMaybe <$> try (plantBytes p a p' s)
 
-plantBytes_ :: CPid -> Word -> Ptr () -> Int -> IO ()
+plantBytes_ :: CPid -> Word -> Ptr a -> Int -> IO ()
 plantBytes_ p a p' s = void $ tryPlantBytes p a p' s
 
 plantStorable :: Storable a => CPid -> Word -> a -> IO ()

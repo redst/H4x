@@ -1,4 +1,4 @@
-module System.Process.VM.Common 
+module System.Process.VM.Regions
   ( Region (..), parseRegion, getRegions, anon
   ) where
 
